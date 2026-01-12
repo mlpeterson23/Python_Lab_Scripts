@@ -36,6 +36,8 @@ import matplotlib.pyplot as plt
 import os
 import shutil
 import re
+import math
+
 
 # Configuration
 BATCH_SIZE = 16  # Batch size for original images
@@ -63,7 +65,7 @@ AGGRESSIVE_MEMORY_MODE = True  # Set to True to aggressively reduce memory (use 
 # When True, will use batch size of 1 regardless of BATCH_SIZE setting
 if AGGRESSIVE_MEMORY_MODE:
     SLIDING_WINDOW_BATCH_SIZE = 2
-    print("WARNING: AGGRESSIVE_MEMORY_MODE enabled - using batch size of 1")
+    print("WARNING: AGGRESSIVE_MEMORY_MODE enabled - using batch size of 2")
 
 
 # Dataset paths
@@ -252,7 +254,12 @@ class CombinedGenerator:
         self.batch_counter = 0
         
     def __len__(self):
-        return len(self.image_generator)
+        if USE_SLIDING_WINDOW:
+            total_images = len(self.image_generator)
+            total_segments = total_images * APPROX_SEGMENTS_PER_IMAGE
+            return max(1, math.ceil(total_segments // self.batch_size))
+        else:
+            return len(self.image_generator)
     
     def __iter__(self):
         # Reset the iterator each time we start iterating
@@ -535,7 +542,7 @@ def create_data_generators():
     # Create base image generators
     train_img_gen = train_datagen.flow_from_directory(
         COMBINED_TRAIN_DIR,
-        target_size=(IMG_LNGTH, IMG_HGT),
+        target_size=(IMG_HGT, IMG_LNGTH),
         batch_size=effective_batch_size,
         class_mode='categorical',
         subset='training',
@@ -545,7 +552,7 @@ def create_data_generators():
     # Create validation generator with SMALLER batch size
     val_img_gen = train_datagen.flow_from_directory(
         COMBINED_TRAIN_DIR,
-        target_size=(IMG_LNGTH, IMG_HGT),
+        target_size=(IMG_HGT, IMG_LNGTH),
         batch_size=VALIDATION_BATCH_SIZE,
         class_mode='categorical',
         subset='validation',
@@ -555,7 +562,7 @@ def create_data_generators():
     # Create test generator with SMALLEST batch size
     test_img_gen = test_datagen.flow_from_directory(
         COMBINED_TEST_DIR,
-        target_size=(IMG_LNGTH, IMG_HGT),
+        target_size=(IMG_HGT, IMG_LNGTH),
         batch_size=TEST_BATCH_SIZE,
         class_mode='categorical',
         shuffle=False
@@ -831,10 +838,19 @@ def main():
     print(f"Validation batch size: {VALIDATION_BATCH_SIZE} images (smaller to avoid memory issues)\n")
     
     try:
+        # Calculate steps per epoch
+        steps_per_epoch = len(train_generator)
+        validation_steps = len(validation_generator)
+        
+        print(f"Calculated steps per epoch: {steps_per_epoch}")
+        print(f"Calculated validation steps: {validation_steps}\n")
+        
         history = model.fit(
             train_generator,
             epochs=EPOCHS,
-            validation_data=validation_generator,        
+            validation_data=validation_generator,
+            steps_per_epoch=steps_per_epoch,
+            validation_steps=validation_steps,
             callbacks=callbacks,
             
             class_weight={  # Add class weights if dataset is imbalanced
