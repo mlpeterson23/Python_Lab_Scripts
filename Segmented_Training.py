@@ -55,7 +55,7 @@ GRAYSCALE_INPUT = True  # Set to True for black and white images
 NORMALIZE_INPUT = False  # Set to True to normalize images to [0,1]
 
 # Sliding window configuration
-USE_SLIDING_WINDOW = False  # Set to True to use sliding window segmentation
+USE_SLIDING_WINDOW = True  # Set to True to use sliding window segmentation
 SEGMENT_HEIGHT = IMG_SIZE  # 224 pixels
 SEGMENT_WIDTH = IMG_SIZE   # 224 pixels
 
@@ -75,7 +75,7 @@ AGGREGATION_METHOD = 'confidence_weighted'  # 'voting', 'average', 'max', or 'co
 
 # Validation-specific batch size (often needs to be smaller than training)
 # Set to 1 if validation stalls or runs out of memory
-VALIDATION_BATCH_SIZE = max(1, SLIDING_WINDOW_BATCH_SIZE // 2) if USE_SLIDING_WINDOW else BATCH_SIZE
+VALIDATION_BATCH_SIZE = BATCH_SIZE
 # For example: if SLIDING_WINDOW_BATCH_SIZE = 2, VALIDATION_BATCH_SIZE = 1
 # Test batch size (evaluation, can be smaller for safety)
 TEST_BATCH_SIZE = max(1, SLIDING_WINDOW_BATCH_SIZE // 4) if USE_SLIDING_WINDOW else BATCH_SIZE
@@ -94,10 +94,11 @@ def get_reference_key(filename):
         if match:
             return match.group(1)
     else:
-        # For files starting with letter, get everything after first '_'
+        # For files starting with letter, get everything in between first '_' and before '_seg###'
         parts = filename.split('_')
+        Final_parts = parts[1].rsplit('_seg')
         if len(parts) > 1:
-            return parts[1]
+            return Final_parts[0]
     return None
 
 def load_tabular_data():
@@ -219,20 +220,16 @@ def aggregate_segment_predictions(predictions, aggregation_method='voting'):
 
 class CombinedGenerator:
     """Custom generator to combine image data with tabular features"""
-    def __init__(self, image_generator, tabular_dict, batch_size):
+    def __init__(self, image_generator, tabular_dict, batch_size, test_mode=False):
         self.image_generator = image_generator
         self.tabular_dict = tabular_dict
         self.batch_size = batch_size
         self.iterator = None
         self.batch_counter = 0
+        self.test_mode = test_mode
         
     def __len__(self):
-        if USE_SLIDING_WINDOW:
-            total_images = len(self.image_generator)
-            total_segments = total_images * APPROX_SEGMENTS_PER_IMAGE
-            return max(1, math.ceil(total_segments // self.batch_size))
-        else:
-            return len(self.image_generator)
+        return len(self.image_generator)
     
     def __iter__(self):
         # Reset the iterator each time we start iterating
@@ -262,7 +259,7 @@ class CombinedGenerator:
         # Ensure images are float32
         images = tf.cast(images, tf.float32)
         
-        if USE_SLIDING_WINDOW:
+        if USE_SLIDING_WINDOW and self.test_mode:
             # Process sliding window segments
             batch_segments = []
             batch_tabular_data = []
@@ -392,13 +389,13 @@ def setup_dataset():
             continue
         
         # Copy PNG files
+        total_segments = 0
         for file in files:
-            total_segments = 0
+            seg_num = 0
             source_file = os.path.join(folder, file)
             #Segment Images and save to target directory
             Processed_image = preprocess_input_fn(tf.keras.preprocessing.image.load_img(source_file))
-            segments = extract_sliding_window_segments(Processed_image)
-            seg_num = 1
+            segments, segment_indices, y_idx, x_idx = extract_sliding_window_segments(Processed_image)
             for segment in segments:
                 segment_filename = f"{os.path.splitext(file)[0]}_seg{seg_num}.png"
                 target_file = os.path.join(target_dir, segment_filename)
@@ -499,13 +496,8 @@ def create_data_generators():
     effective_batch_size = SLIDING_WINDOW_BATCH_SIZE if USE_SLIDING_WINDOW else BATCH_SIZE
     
     print(f"\nSetting up data generators...")
-    print(f"Using batch sizes:")
-    print(f"  Training: {effective_batch_size} images (~{effective_batch_size * APPROX_SEGMENTS_PER_IMAGE} segments)")
-    print(f"  Validation: {VALIDATION_BATCH_SIZE} images (~{VALIDATION_BATCH_SIZE * APPROX_SEGMENTS_PER_IMAGE} segments)")
-    print(f"  Test: {TEST_BATCH_SIZE} images (~{TEST_BATCH_SIZE * APPROX_SEGMENTS_PER_IMAGE} segments)")
     
     train_datagen = ImageDataGenerator(
-        preprocessing_function=preprocess_input_fn,
         rotation_range=15,
         width_shift_range=0.1,
         height_shift_range=0.1,
@@ -551,10 +543,10 @@ def create_data_generators():
     )
     
     # Create combined generators
-    train_generator = CombinedGenerator(train_img_gen, tabular_dict, effective_batch_size)
-    validation_generator = CombinedGenerator(val_img_gen, tabular_dict, effective_batch_size)
-    test_generator = CombinedGenerator(test_img_gen, tabular_dict, effective_batch_size)
-    
+    train_generator = CombinedGenerator(train_img_gen, tabular_dict, effective_batch_size, False)
+    validation_generator = CombinedGenerator(val_img_gen, tabular_dict, effective_batch_size, False)
+    test_generator = CombinedGenerator(test_img_gen, tabular_dict, effective_batch_size, True)
+
     print("\nClass mapping:")
     print(train_generator.class_indices)
     print(f"\nFound {train_generator.samples} training samples")
@@ -814,10 +806,10 @@ def main():
     
     # Train the model
     print("\nInitial training with frozen base model...")
-    print(f"Training approach: Segments extracted via sliding window, then trained normally")
-    print(f"Training batch size: {SLIDING_WINDOW_BATCH_SIZE if USE_SLIDING_WINDOW else BATCH_SIZE} images")
-    print(f"Expected segments per batch: ~{(SLIDING_WINDOW_BATCH_SIZE if USE_SLIDING_WINDOW else BATCH_SIZE) * APPROX_SEGMENTS_PER_IMAGE}")
-    print(f"Validation batch size: {VALIDATION_BATCH_SIZE} images (smaller to avoid memory issues)\n")
+    print(f"Training approach: Trained on pre-extracted segments using sliding window")
+    print(f"Training batch size: {SLIDING_WINDOW_BATCH_SIZE} images")
+    print(f"Approx. segments per image: {APPROX_SEGMENTS_PER_IMAGE}")
+    print(f"Test batch size: {TEST_BATCH_SIZE} images. Using confidence-weighted aggregation for evaluation.\n")
     
     try:
         # Calculate steps per epoch
