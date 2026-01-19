@@ -365,14 +365,14 @@ def setup_dataset():
     print(f"Test folders to process: {TEST_FOLDERS}")
     
     # Remove existing combined directories if they exist
-    if os.path.exists(COMBINED_TRAIN_DIR):
-        shutil.rmtree(COMBINED_TRAIN_DIR)
-    if os.path.exists(COMBINED_TEST_DIR):
-        shutil.rmtree(COMBINED_TEST_DIR)
+    if os.path.exists(DATA_LOCATION + COMBINED_TRAIN_DIR):
+        shutil.rmtree(DATA_LOCATION + COMBINED_TRAIN_DIR)
+    if os.path.exists(DATA_LOCATION + COMBINED_TEST_DIR):
+        shutil.rmtree(DATA_LOCATION + COMBINED_TEST_DIR)
     
     # Create combined directories
-    os.makedirs(COMBINED_TRAIN_DIR)
-    os.makedirs(COMBINED_TEST_DIR)
+    os.makedirs(DATA_LOCATION + COMBINED_TRAIN_DIR)
+    os.makedirs(DATA_LOCATION + COMBINED_TEST_DIR)
     print(f"Created directories: {COMBINED_TRAIN_DIR}, {COMBINED_TEST_DIR}")
     
     # Process training data
@@ -382,7 +382,7 @@ def setup_dataset():
             continue
         
         class_name = folder.split('_')[0]
-        target_dir = os.path.join(COMBINED_TRAIN_DIR, class_name)
+        target_dir = os.path.join(DATA_LOCATION + COMBINED_TRAIN_DIR, class_name)
         os.makedirs(target_dir)
         
         print(f"\nProcessing {folder}...")
@@ -414,7 +414,7 @@ def setup_dataset():
             continue
         
         class_name = folder.split('_')[0]
-        target_dir = os.path.join(COMBINED_TEST_DIR, class_name)
+        target_dir = os.path.join(DATA_LOCATION + COMBINED_TEST_DIR, class_name)
         os.makedirs(target_dir)
         
         print(f"\nProcessing test folder {folder}...")
@@ -884,8 +884,8 @@ def main():
         print(f"Test loss: {test_loss:.4f}")
     
     # Save the final model
-    model.save('Models\\Sliding_Window_RSTL_Test.keras')
-    print("\nModel saved as 'Models\\Sliding_Window_RSTL_Test.keras'")
+    model.save(DATA_LOCATION + 'Models\\Sliding_Window_RSTL_Test.keras')
+    print("\nModel saved as 'Sliding_Window_RSTL_Test.keras'")
 
 if __name__ == '__main__':
     # Enable mixed precision training for faster training if GPU is available
